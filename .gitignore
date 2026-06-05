@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# External tools (large binaries, not in git)
+tools/ffmpeg/
+tools/exiftool/
+
+# Test samples (video files)
+tests/samples/*.mp4
+tests/samples/*.mov
+tests/samples/*.MP4
+tests/samples/*.MOV
+
+# Build artifacts
+*.spec.bak
+
+# Temporary files
+*.tmp
+*.temp
+%TEMP%/
