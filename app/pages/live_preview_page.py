@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QImage, QImageReader, QPixmap
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QImage, QImageReader, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -18,12 +18,13 @@ from PySide6.QtWidgets import (
 
 from app.models.capture_task import CaptureTask
 from app.services.ffmpeg_service import FFmpegService
-from app.widgets.video_player import VideoPlayerWidget
+from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
 
 
 class LivePreviewPage(QWidget):
     export_clicked = Signal(CaptureTask)
     back_clicked = Signal()
+    video_dropped = Signal(str)
 
     INDEX_VIDEO = 0
     INDEX_IMAGE = 1
@@ -79,6 +80,9 @@ class LivePreviewPage(QWidget):
 
         layout.addWidget(self.preview_stack, stretch=1)
 
+        self._install_video_drop_targets()
+        self.video_player.file_dropped.connect(self.video_dropped.emit)
+
         footer_info = QWidget()
         footer_info_layout = QVBoxLayout(footer_info)
         footer_info_layout.setContentsMargins(16, 8, 16, 8)
@@ -116,6 +120,40 @@ class LivePreviewPage(QWidget):
         layout.addWidget(footer, stretch=0)
 
         self.video_player.video_loaded.connect(self._on_video_loaded_for_preview)
+
+    def _install_video_drop_targets(self) -> None:
+        targets = [self.preview_stack, self.image_label]
+        for widget in targets:
+            widget.setAcceptDrops(True)
+            widget.installEventFilter(self)
+
+    @staticmethod
+    def _video_path_from_drop(event) -> str | None:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            path = url.toLocalFile()
+            if Path(path).suffix in SUPPORTED_EXTENSIONS:
+                return path
+        return None
+
+    def eventFilter(self, obj, event) -> bool:
+        event_type = event.type()
+        if event_type in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+            mime = event.mimeData()
+            if mime.hasUrls():
+                for url in mime.urls():
+                    if Path(url.toLocalFile()).suffix in SUPPORTED_EXTENSIONS:
+                        event.acceptProposedAction()
+                        return True
+        elif event_type == QEvent.Type.Drop:
+            path = self._video_path_from_drop(event)
+            if path:
+                self.video_dropped.emit(path)
+                event.acceptProposedAction()
+                return True
+        return super().eventFilter(obj, event)
 
     def show_loading(
         self,

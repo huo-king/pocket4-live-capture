@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from pathlib import Path
+
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from app.widgets.player_bottom_panel import PlayerBottomPanel
 from app.widgets.processing_panel import ProcessingPanel
-from app.widgets.video_player import VideoPlayerWidget
+from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
 from app.widgets.watermark_preview_panel import WatermarkPreviewPanel
 
 
@@ -17,6 +20,7 @@ class PlayerPage(QWidget):
     live_clicked = Signal(int)
     batch_watermark_clicked = Signal()
     video_error = Signal(str)
+    video_dropped = Signal(str)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -53,6 +57,10 @@ class PlayerPage(QWidget):
         layout.addWidget(self.watermark_panel, stretch=0)
         layout.addWidget(self.bottom_panel, stretch=0)
 
+        self._install_video_drop_targets()
+
+        self.video_player.file_dropped.connect(self.video_dropped.emit)
+
         self.bottom_panel.timeline.play_btn.clicked.connect(
             self.video_player.toggle_playback
         )
@@ -88,11 +96,78 @@ class PlayerPage(QWidget):
         )
         self.bottom_panel.toolbar.set_enabled(False)
 
+    def _install_video_drop_targets(self) -> None:
+        """处理/水印等区域拖放；视频画面由 VideoPlayerWidget 透明层接管。"""
+        targets = [
+            self,
+            self.view_stack,
+            self.hint_label,
+            self.processing_panel,
+            self.watermark_panel,
+            self.bottom_panel,
+        ]
+        for widget in targets:
+            widget.setAcceptDrops(True)
+            widget.installEventFilter(self)
+        for child in self.findChildren(QWidget):
+            if child is self.video_player:
+                continue
+            if self.video_player.isAncestorOf(child):
+                continue
+            child.setAcceptDrops(True)
+            child.installEventFilter(self)
+
+    @staticmethod
+    def _video_path_from_drop(event) -> str | None:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return None
+        for url in mime.urls():
+            path = url.toLocalFile()
+            if Path(path).suffix in SUPPORTED_EXTENSIONS:
+                return path
+        return None
+
+    def eventFilter(self, obj, event) -> bool:
+        event_type = event.type()
+        if event_type in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
+            mime = event.mimeData()
+            if mime.hasUrls():
+                for url in mime.urls():
+                    if Path(url.toLocalFile()).suffix in SUPPORTED_EXTENSIONS:
+                        event.acceptProposedAction()
+                        return True
+        elif event_type == QEvent.Type.Drop:
+            path = self._video_path_from_drop(event)
+            if path:
+                self.video_dropped.emit(path)
+                event.acceptProposedAction()
+                return True
+        return super().eventFilter(obj, event)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if self._video_path_from_drop(event):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        path = self._video_path_from_drop(event)
+        if path:
+            self.video_dropped.emit(path)
+            event.acceptProposedAction()
+
     def is_watermark_enabled(self) -> bool:
         return self.bottom_panel.toolbar.is_watermark_enabled()
 
     def load_video(self, path: str, *, hint: str | None = None) -> None:
         self._load_hint = hint
+        self._has_video = False
+        self.view_stack.setCurrentWidget(self.video_player)
+        self.hint_label.setText("正在加载视频…")
+        self.hint_label.setStyleSheet("color: #888888; font-size: 16px;")
+        self.processing_panel.set_loading("正在加载视频…")
+        self.bottom_panel.timeline.set_duration(0)
+        self.bottom_panel.timeline.set_position(0)
+        self.bottom_panel.toolbar.set_enabled(False)
         self.video_player.load(path)
 
     def show_loading_message(self, message: str) -> None:

@@ -52,6 +52,7 @@ class MainWindow(QMainWindow):
 
         self._video_path: str | None = None
         self._pending_timestamp_ms = 0
+        self._last_loaded_video: str | None = None
         self._export_worker: ExportWorker | None = None
         self._preview_worker: PreviewFrameWorker | None = None
         self._batch_worker: BatchWatermarkWorker | None = None
@@ -79,9 +80,11 @@ class MainWindow(QMainWindow):
         self.player_page.live_clicked.connect(self._go_live_preview_at)
         self.player_page.batch_watermark_clicked.connect(self._go_batch_watermark)
         self.player_page.video_error.connect(self._show_error)
+        self.player_page.video_dropped.connect(self._load_video)
 
         self.live_preview_page.back_clicked.connect(self._back_to_player)
         self.live_preview_page.export_clicked.connect(self._export_motion_photo)
+        self.live_preview_page.video_dropped.connect(self._load_video)
 
         self.batch_watermark_page.back_clicked.connect(self._back_to_player)
         self.batch_watermark_page.pick_output_dir.connect(self._pick_batch_output_dir)
@@ -117,32 +120,41 @@ class MainWindow(QMainWindow):
         return None
 
     def _load_video(self, path: str) -> None:
+        resolved = str(Path(path).resolve())
+
+        self._cleanup_preview_worker()
         self._cancel_proxy_worker()
-        self._video_path = path
+        if self._progress_dialog:
+            self._progress_dialog.reject()
+            self._progress_dialog = None
+
+        self._video_path = resolved
         self._preview_path = None
         self._using_proxy_preview = False
         self.stack.setCurrentIndex(self.PAGE_PLAYER)
 
         try:
-            info = probe_video(path)
+            info = probe_video(resolved)
         except RuntimeError as exc:
             self.player_page.show_load_error(str(exc))
             return
 
         if not needs_preview_proxy(info.codec):
-            self._preview_path = path
-            self.player_page.load_video(path)
-            print(f"[INFO] 收到视频文件: {path} ({info.codec})")
+            self._preview_path = resolved
+            self._last_loaded_video = resolved
+            self.player_page.load_video(resolved)
+            print(f"[INFO] 收到视频文件: {resolved} ({info.codec})")
             return
 
-        cache = proxy_cache_path(path)
-        if is_cache_valid(cache, Path(path)):
+        cache = proxy_cache_path(resolved)
+        if is_cache_valid(cache, Path(resolved)):
             self._preview_path = str(cache)
             self._using_proxy_preview = True
             hint = (
                 f"预览为 H.264 代理（原片 {info.codec.upper()}）；"
                 "截帧/导出仍用原片，不影响画质"
             )
+            self._last_loaded_video = resolved
             self.player_page.load_video(str(cache), hint=hint)
             print(f"[INFO] 使用缓存预览代理: {cache}")
             return
@@ -153,22 +165,30 @@ class MainWindow(QMainWindow):
         self._progress_dialog.setWindowTitle("预览代理")
         self._progress_dialog.show()
 
-        self._proxy_worker = ProxyPreviewWorker(path, parent=self)
+        self._proxy_worker = ProxyPreviewWorker(resolved, parent=self)
         self._proxy_worker.progress.connect(self._on_export_progress)
         self._proxy_worker.finished_ok.connect(self._on_proxy_ready)
         self._proxy_worker.failed.connect(self._on_proxy_failed)
         self._proxy_worker.finished.connect(self._on_proxy_finished)
         self._proxy_worker.start()
-        print(f"[INFO] 生成 HEVC 预览代理: {path}")
+        print(f"[INFO] 生成 HEVC 预览代理: {resolved}")
 
     def _cancel_proxy_worker(self) -> None:
         if self._proxy_worker is None:
             return
-        if self._proxy_worker.isRunning():
-            self._proxy_worker.wait(5000)
+        worker = self._proxy_worker
         self._proxy_worker = None
+        for signal in (worker.progress, worker.finished_ok, worker.failed, worker.finished):
+            try:
+                signal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        if worker.isRunning():
+            worker.wait(5000)
 
     def _on_proxy_ready(self, preview_path: str, using_proxy: bool) -> None:
+        if self.sender() is not self._proxy_worker:
+            return
         if self._progress_dialog:
             self._progress_dialog.accept()
         self._preview_path = preview_path
@@ -176,9 +196,13 @@ class MainWindow(QMainWindow):
         hint = None
         if using_proxy:
             hint = "预览为 H.264 代理；截帧/导出仍用原片，不影响画质"
+        if self._video_path:
+            self._last_loaded_video = self._video_path
         self.player_page.load_video(preview_path, hint=hint)
 
     def _on_proxy_failed(self, message: str) -> None:
+        if self.sender() is not self._proxy_worker:
+            return
         if self._progress_dialog:
             self._progress_dialog.reject()
         self._show_error(
