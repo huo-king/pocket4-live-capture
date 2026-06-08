@@ -6,15 +6,36 @@
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-lightgrey?logo=windows)
+[![Download](https://img.shields.io/badge/下载-Windows%20exe-brightgreen?logo=windows)](https://github.com/huoking/pocket-live-capture/releases)
+
+---
+
+## 📥 下载（开箱即用）
+
+> **Windows 10/11 64 位用户**：下载解压后双击即可使用，无需安装 Python、FFmpeg 或任何运行环境。
+
+👉 **[前往 GitHub Releases 下载最新版](https://github.com/huoking/pocket-live-capture/releases)**
+
+下载 `Pocket实况截图_vX.X_Windows_x64.zip`，解压后运行 `Pocket实况截图.exe`。
+
+```
+Pocket实况截图/
+├── Pocket实况截图.exe    ← 双击启动
+├── _internal/            ← 内置运行环境（勿删除）
+└── 使用说明.txt
+```
+
+> ⚠️ 杀毒软件可能误报，可添加信任。分享给他人时打包整个文件夹为 zip。
 
 ---
 
 ## 📖 目录
 
+- [📥 下载](#-下载开箱即用)
 - [项目简介](#-项目简介)
 - [功能亮点](#-功能亮点)
 - [技术架构](#-技术架构)
-- [快速开始](#-快速开始)
+- [从源码运行](#-从源码运行)
 - [使用指南](#-使用指南)
 - [画质策略](#-画质策略)
 - [Motion Photo 格式说明](#-motion-photo-格式说明)
@@ -184,7 +205,9 @@ HEVC 原片 → ffmpeg 转码 → H.264 代理 (CRF 23, veryfast)
 
 ---
 
-## 🚀 快速开始
+## 🚀 从源码运行
+
+> 如果你不需要二次开发，直接下载 [预编译 exe](#-下载开箱即用) 即可，无需安装任何环境。
 
 ### 环境要求
 

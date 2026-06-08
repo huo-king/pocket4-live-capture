@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-GITHUB_URL = "https://github.com/huoking/pocket-live-capture"
+GITHUB_URL = "https://github.com/huoking/pocket-live-capture/releases"
 
 
 class BottomToolbar(QWidget):
@@ -45,7 +45,7 @@ class BottomToolbar(QWidget):
         top_row.addWidget(self.watermark_cb)
         top_row.addStretch()
 
-        self.github_label = QLabel('<a href="#">github地址</a>')
+        self.github_label = QLabel('<a href="#">📥 下载 / GitHub</a>')
         self.github_label.setObjectName("githubLink")
         self.github_label.setOpenExternalLinks(False)
         self.github_label.linkActivated.connect(self._open_github)
