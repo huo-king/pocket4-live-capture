@@ -24,9 +24,11 @@ Thumbs.db
 .DS_Store
 Desktop.ini
 
-# External tools (large binaries, not in git)
-tools/ffmpeg/
-tools/exiftool/
+# External tools (large binaries, not in git — use setup_tools.ps1 to download)
+tools/ffmpeg.exe
+tools/ffprobe.exe
+tools/exiftool.exe
+tools/exiftool_files/
 
 # Test samples (video files)
 tests/samples/*.mp4
@@ -36,6 +38,10 @@ tests/samples/*.MOV
 
 # Build artifacts
 *.spec.bak
+
+# Local dev files (not needed in repo)
+dajiangphoto*.png
+Pocket实况截图工具_开发计划书.txt
 
 # Temporary files
 *.tmp

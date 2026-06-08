@@ -25,11 +25,42 @@ QMainWindow {
     background-color: #1A1A1A;
 }
 
+/* === 播放页分区 === */
+QStackedWidget#videoStack {
+    background: #000000;
+    border-bottom: 1px solid #3A3A3A;
+}
+
+QWidget#processingPanel,
+QWidget#watermarkPanel {
+    background-color: #222222;
+    border-bottom: 1px solid #3A3A3A;
+}
+
+QLabel#sectionTitle {
+    color: #FFFFFF;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+QLabel#githubLink {
+    color: #888888;
+    font-size: 12px;
+}
+
+QLabel#githubLink:hover {
+    color: #4DA3FF;
+}
+
+/* === 播放页底部控制区 === */
+QWidget#playerBottomPanel {
+    background-color: #2D2D2D;
+    border-top: 1px solid #3A3A3A;
+}
+
 /* === 工具栏/底部栏 === */
 QWidget#bottomToolbar {
     background-color: #2D2D2D;
-    border-top: 1px solid #3A3A3A;
-    min-height: 60px;
 }
 
 /* === 按钮 === */
@@ -38,8 +69,8 @@ QPushButton {
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
-    padding: 10px 24px;
-    font-size: 15px;
+    padding: 8px 12px;
+    font-size: 14px;
     font-weight: bold;
 }
 
@@ -88,6 +119,44 @@ QPushButton#screenshotButton:hover {
     background-color: #555555;
 }
 
+/* === 复选框（添加水印等） === */
+QCheckBox {
+    color: #FFFFFF;
+    spacing: 8px;
+    font-size: 14px;
+}
+
+QCheckBox#watermarkCheckBox {
+    color: #FFFFFF;
+    font-weight: bold;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 2px solid #FFFFFF;
+    background-color: transparent;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #4DA3FF;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #4DA3FF;
+    border-color: #4DA3FF;
+}
+
+QCheckBox::indicator:disabled {
+    border-color: #666666;
+    background-color: transparent;
+}
+
+QCheckBox:disabled {
+    color: #666666;
+}
+
 /* === 滑块 / 时间轴 === */
 QSlider::groove:horizontal {
     background: #3D3D3D;
@@ -106,6 +175,63 @@ QSlider::handle:horizontal {
 QSlider::sub-page:horizontal {
     background: #4DA3FF;
     border-radius: 2px;
+}
+
+QSlider#timelineSlider::groove:horizontal {
+    background: #2A2A2A;
+    height: 10px;
+    border-radius: 5px;
+    border: 1px solid #444444;
+}
+
+QSlider#timelineSlider::sub-page:horizontal {
+    background: qlineargradient(
+        x1: 0, y1: 0, x2: 1, y2: 0,
+        stop: 0 #3D93EF,
+        stop: 1 #4DA3FF
+    );
+    border-radius: 5px;
+}
+
+QSlider#timelineSlider::add-page:horizontal {
+    background: #2A2A2A;
+    border-radius: 5px;
+}
+
+QSlider#timelineSlider::handle:horizontal {
+    background: #FFFFFF;
+    border: 3px solid #4DA3FF;
+    width: 22px;
+    height: 22px;
+    margin: -8px 0;
+    border-radius: 11px;
+}
+
+QSlider#timelineSlider::handle:horizontal:hover {
+    background: #FFFFFF;
+    border: 3px solid #6DB5FF;
+    width: 24px;
+    height: 24px;
+    margin: -9px 0;
+    border-radius: 12px;
+}
+
+QSlider#timelineSlider::handle:horizontal:pressed {
+    background: #E8F3FF;
+    border: 3px solid #3D93EF;
+}
+
+QLabel#timelinePositionLabel {
+    color: #FFFFFF;
+    font-size: 15px;
+    font-weight: bold;
+    font-family: "Consolas", "Cascadia Mono", "Microsoft YaHei UI", monospace;
+}
+
+QLabel#timelineDurationLabel {
+    color: #888888;
+    font-size: 13px;
+    font-family: "Consolas", "Cascadia Mono", "Microsoft YaHei UI", monospace;
 }
 
 /* === 标签 === */
