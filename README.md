@@ -195,7 +195,7 @@ HEVC 原片 → ffmpeg 转码 → H.264 代理 (CRF 23, veryfast)
 ### 第一步：克隆项目
 
 ```powershell
-git clone https://github.com/YOUR_USERNAME/pocket-live-capture.git
+git clone https://github.com/huoking/pocket-live-capture.git
 cd pocket-live-capture
 ```
 
@@ -453,7 +453,7 @@ pocket-live-capture/
 
 ```powershell
 # 克隆项目
-git clone https://github.com/YOUR_USERNAME/pocket-live-capture.git
+git clone https://github.com/huoking/pocket-live-capture.git
 cd pocket-live-capture
 
 # 创建虚拟环境
