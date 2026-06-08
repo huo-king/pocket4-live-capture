@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-GITHUB_URL = "https://github.com/huoking/pocket-live-capture/releases"
+GITHUB_URL = "https://github.com/huo-king/pocket-live-capture/releases"
 
 
 class BottomToolbar(QWidget):

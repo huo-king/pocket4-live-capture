@@ -6,7 +6,7 @@
 ![PySide6](https://img.shields.io/badge/GUI-PySide6-green?logo=qt)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-lightgrey?logo=windows)
-[![Download](https://img.shields.io/badge/下载-Windows%20exe-brightgreen?logo=windows)](https://github.com/huoking/pocket-live-capture/releases)
+[![Download](https://img.shields.io/badge/下载-Windows%20exe-brightgreen?logo=windows)](https://github.com/huo-king/pocket-live-capture/releases)
 
 ---
 
@@ -14,7 +14,7 @@
 
 > **Windows 10/11 64 位用户**：下载解压后双击即可使用，无需安装 Python、FFmpeg 或任何运行环境。
 
-👉 **[前往 GitHub Releases 下载最新版](https://github.com/huoking/pocket-live-capture/releases)**
+👉 **[前往 GitHub Releases 下载最新版](https://github.com/huo-king/pocket-live-capture/releases)**
 
 下载 `Pocket实况截图_vX.X_Windows_x64.zip`，解压后运行 `Pocket实况截图.exe`。
 
@@ -218,7 +218,7 @@ HEVC 原片 → ffmpeg 转码 → H.264 代理 (CRF 23, veryfast)
 ### 第一步：克隆项目
 
 ```powershell
-git clone https://github.com/huoking/pocket-live-capture.git
+git clone https://github.com/huo-king/pocket-live-capture.git
 cd pocket-live-capture
 ```
 
@@ -476,7 +476,7 @@ pocket-live-capture/
 
 ```powershell
 # 克隆项目
-git clone https://github.com/huoking/pocket-live-capture.git
+git clone https://github.com/huo-king/pocket-live-capture.git
 cd pocket-live-capture
 
 # 创建虚拟环境
