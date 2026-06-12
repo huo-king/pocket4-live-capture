@@ -32,7 +32,8 @@ QStackedWidget#videoStack {
 }
 
 QWidget#processingPanel,
-QWidget#watermarkPanel {
+QWidget#watermarkPanel,
+QWidget#qualityEnhancePanel {
     background-color: #222222;
     border-bottom: 1px solid #3A3A3A;
 }
@@ -126,7 +127,8 @@ QCheckBox {
     font-size: 14px;
 }
 
-QCheckBox#watermarkCheckBox {
+QCheckBox#watermarkCheckBox,
+QCheckBox#enhanceCheckBox {
     color: #FFFFFF;
     font-weight: bold;
 }
@@ -155,6 +157,32 @@ QCheckBox::indicator:disabled {
 
 QCheckBox:disabled {
     color: #666666;
+}
+
+QComboBox#enhanceModeCombo {
+    background-color: #3D3D3D;
+    color: #FFFFFF;
+    border: 1px solid #555555;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 28px;
+    font-size: 13px;
+}
+
+QComboBox#enhanceModeCombo:hover {
+    border-color: #4DA3FF;
+}
+
+QComboBox#enhanceModeCombo::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox#enhanceModeCombo QAbstractItemView {
+    background-color: #2D2D2D;
+    color: #FFFFFF;
+    selection-background-color: #4DA3FF;
+    border: 1px solid #555555;
 }
 
 /* === 滑块 / 时间轴 === */

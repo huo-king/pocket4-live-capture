@@ -19,7 +19,11 @@ class PreviewFrameWorker(QThread):
     failed = Signal(str)
 
     def __init__(
-        self, task: CaptureTask, *, apply_watermark: bool = False, parent=None
+        self,
+        task: CaptureTask,
+        *,
+        apply_watermark: bool = False,
+        parent=None,
     ):
         super().__init__(parent)
         self.task = task

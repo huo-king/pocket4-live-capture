@@ -25,16 +25,25 @@ Thumbs.db
 Desktop.ini
 
 # External tools (large binaries, not in git — use setup_tools.ps1 to download)
+tools/ffmpeg/
 tools/ffmpeg.exe
 tools/ffprobe.exe
+tools/exiftool/
 tools/exiftool.exe
 tools/exiftool_files/
+tools/models/
+tools/realesrgan-ncnn-vulkan.exe
+tools/vcomp140.dll
+tools/vcomp140d.dll
 
-# Test samples (video files)
+# Test samples & demo files
 tests/samples/*.mp4
 tests/samples/*.mov
 tests/samples/*.MP4
 tests/samples/*.MOV
+tools/*.mp4
+tools/*.jpg
+tools/mi.config
 
 # Build artifacts
 *.spec.bak

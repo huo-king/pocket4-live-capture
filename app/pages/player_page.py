@@ -8,8 +8,10 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
+from app.services.quality_enhance_service import EnhanceMode, resolve_export_enhance_mode
 from app.widgets.player_bottom_panel import PlayerBottomPanel
 from app.widgets.processing_panel import ProcessingPanel
+from app.widgets.quality_enhance_panel import QualityEnhancePanel
 from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
 from app.widgets.watermark_preview_panel import WatermarkPreviewPanel
 
@@ -50,11 +52,13 @@ class PlayerPage(QWidget):
 
         self.processing_panel = ProcessingPanel()
         self.watermark_panel = WatermarkPreviewPanel()
+        self.quality_panel = QualityEnhancePanel()
         self.bottom_panel = PlayerBottomPanel()
 
         layout.addWidget(self.view_stack, stretch=1)
         layout.addWidget(self.processing_panel, stretch=0)
         layout.addWidget(self.watermark_panel, stretch=0)
+        layout.addWidget(self.quality_panel, stretch=0)
         layout.addWidget(self.bottom_panel, stretch=0)
 
         self._install_video_drop_targets()
@@ -94,6 +98,12 @@ class PlayerPage(QWidget):
         self.bottom_panel.toolbar.watermark_changed.connect(
             self.watermark_panel.set_watermark_enabled
         )
+        self.bottom_panel.toolbar.quality_enhance_changed.connect(
+            self._on_quality_enhance_toggled
+        )
+        self.bottom_panel.toolbar.quality_enhance_mode_changed.connect(
+            self.quality_panel.set_enhance_mode
+        )
         self.bottom_panel.toolbar.set_enabled(False)
 
     def _install_video_drop_targets(self) -> None:
@@ -104,6 +114,7 @@ class PlayerPage(QWidget):
             self.hint_label,
             self.processing_panel,
             self.watermark_panel,
+            self.quality_panel,
             self.bottom_panel,
         ]
         for widget in targets:
@@ -157,6 +168,21 @@ class PlayerPage(QWidget):
 
     def is_watermark_enabled(self) -> bool:
         return self.bottom_panel.toolbar.is_watermark_enabled()
+
+    def is_quality_enhance_enabled(self) -> bool:
+        return self.get_enhance_mode() != EnhanceMode.OFF
+
+    def get_enhance_mode(self) -> EnhanceMode:
+        mode = self.bottom_panel.toolbar.get_enhance_mode()
+        return resolve_export_enhance_mode(mode)
+
+    def _on_quality_enhance_toggled(self, enabled: bool) -> None:
+        if enabled:
+            self.quality_panel.set_enhance_mode(
+                self.bottom_panel.toolbar.get_enhance_mode()
+            )
+        else:
+            self.quality_panel.set_enhance_mode(EnhanceMode.OFF)
 
     def load_video(self, path: str, *, hint: str | None = None) -> None:
         self._load_hint = hint

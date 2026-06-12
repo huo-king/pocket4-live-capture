@@ -15,6 +15,7 @@ from app.services.ffmpeg_service import FFmpegService
 from app.services.motion_photo_service import MotionPhotoService
 from app.services.photo_jpeg_export import export_photo_jpeg
 from app.services.photo_png_export import export_photo_png
+from app.services.quality_enhance_service import EnhanceMode, enhance_video_clip, should_enhance_motion_video
 
 
 class ExportWorker(QThread):
@@ -33,6 +34,7 @@ class ExportWorker(QThread):
         mode: str = MODE_MOTION,
         *,
         apply_watermark: bool = False,
+        enhance_mode: EnhanceMode = EnhanceMode.OFF,
         parent=None,
     ):
         super().__init__(parent)
@@ -40,10 +42,14 @@ class ExportWorker(QThread):
         self.output_path = output_path
         self.mode = mode
         self.apply_watermark = apply_watermark
+        self.enhance_mode = enhance_mode
         self._ffmpeg = FFmpegService()
         self._motion = MotionPhotoService()
-        self.last_clip_quality: str = ""
         self.last_frame_note: str = ""
+        self.last_clip_quality: str = ""
+
+    def _emit_progress(self, value: int, message: str) -> None:
+        self.progress.emit(value, message)
 
     def run(self) -> None:
         temp_dir = Path(tempfile.gettempdir()) / f"pocket_live_{uuid.uuid4().hex}"
@@ -51,12 +57,14 @@ class ExportWorker(QThread):
 
         try:
             if self.mode == self.MODE_PHOTO_PNG:
-                self.progress.emit(10, "PNG 无损截帧…")
+                self.progress.emit(5, "PNG 无损截帧…")
                 note = export_photo_png(
                     self.task.video_path,
                     self.task.timestamp_sec,
                     self.output_path,
                     apply_watermark=self.apply_watermark,
+                    enhance_mode=self.enhance_mode,
+                    on_progress=self._emit_progress,
                 )
                 self.last_frame_note = note
                 self.progress.emit(100, "完成")
@@ -64,12 +72,14 @@ class ExportWorker(QThread):
                 return
 
             if self.mode == self.MODE_PHOTO_JPEG:
-                self.progress.emit(10, "PNG 无损截帧 → JPEG 最高质量…")
+                self.progress.emit(5, "PNG 无损截帧…")
                 note = export_photo_jpeg(
                     self.task.video_path,
                     self.task.timestamp_sec,
                     self.output_path,
                     apply_watermark=self.apply_watermark,
+                    enhance_mode=self.enhance_mode,
+                    on_progress=self._emit_progress,
                 )
                 self.last_frame_note = note
                 self.progress.emit(100, "完成")
@@ -81,24 +91,30 @@ class ExportWorker(QThread):
             self.task.compute_clip_bounds(info.duration_sec)
 
             frame_path = str(temp_dir / "frame.jpg")
-            frame_mb = 0.0
 
-            self.progress.emit(25, "PNG 无损截帧 → 最高质量 JPEG 封面…")
-            self._ffmpeg.extract_frame(
+            self.progress.emit(20, "生成实况封面…")
+            enhance_note = self._ffmpeg.extract_frame(
                 self.task.video_path,
                 self.task.timestamp_sec,
                 frame_path,
                 apply_watermark=self.apply_watermark,
+                enhance_mode=self.enhance_mode,
+                video_info=info,
             )
             frame_mb = Path(frame_path).stat().st_size / (1024 * 1024)
-            self.last_frame_note = (
-                f"封面：PNG 无损 → JPEG(100/4:4:4) · {frame_mb:.1f} MB"
-            )
+            if self.enhance_mode != EnhanceMode.OFF:
+                self.last_frame_note = (
+                    f"封面：{enhance_note or '已增强'} → JPEG(100/4:4:4) · {frame_mb:.1f} MB"
+                )
+            else:
+                self.last_frame_note = (
+                    f"封面：PNG 无损 → JPEG(100/4:4:4) · {frame_mb:.1f} MB"
+                )
             if self.apply_watermark:
                 self.last_frame_note += " · 已加水印"
 
             clip_path = str(temp_dir / "clip.mp4")
-            self.progress.emit(55, "无损裁切视频片段（stream copy）…")
+            self.progress.emit(40, "裁切实况视频片段…")
             clip_result = self._ffmpeg.extract_clip(
                 self.task.video_path,
                 self.task.clip_start_sec,
@@ -107,11 +123,34 @@ class ExportWorker(QThread):
                 has_audio=info.has_audio,
                 for_motion_photo=True,
             )
-            self.last_clip_quality = clip_result.quality_label
+
+            if self.enhance_mode != EnhanceMode.OFF and should_enhance_motion_video(
+                self.enhance_mode
+            ):
+                enhanced_clip = str(temp_dir / "clip_enhanced.mp4")
+                self.progress.emit(50, "AI 增强实况视频（请耐心等待）…")
+
+                def on_clip_progress(value: int, message: str) -> None:
+                    mapped = 50 + int(value * 0.35)
+                    self.progress.emit(mapped, message)
+
+                video_result = enhance_video_clip(
+                    clip_path,
+                    enhanced_clip,
+                    mode=self.enhance_mode,
+                    on_progress=on_clip_progress,
+                )
+                clip_path = enhanced_clip
+                self.last_clip_quality = video_result.note
+            else:
+                self.last_clip_quality = clip_result.quality_label
+                if self.enhance_mode != EnhanceMode.OFF:
+                    self.last_clip_quality += " · 内嵌视频保持原画 stream copy"
+
             if Path(clip_path).stat().st_size <= 0:
                 raise RuntimeError("视频片段裁切失败：输出文件为空")
 
-            self.progress.emit(80, "封装 Motion Photo…")
+            self.progress.emit(88, "封装 Motion Photo…")
             self._motion.create(
                 frame_path,
                 clip_path,
@@ -149,6 +188,8 @@ def _friendly_error(message: str) -> str:
     text = message.strip()
     if "未找到 ffmpeg" in text or "ffmpeg" in text.lower() and "not found" in text.lower():
         return "未找到 FFmpeg，请将 ffmpeg.exe 放到 tools/ 目录或安装到系统 PATH"
+    if "Real-ESRGAN" in text or "realesrgan" in text.lower():
+        return text
     if "未找到 ffprobe" in text:
         return "未找到 ffprobe，请将 ffprobe.exe 放到 tools/ 目录"
     if "未找到 exiftool" in text:

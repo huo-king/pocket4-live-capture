@@ -31,6 +31,7 @@ from app.services.export_worker import (
     default_export_dir,
 )
 from app.services.preview_worker import PreviewFrameWorker
+from app.services.quality_enhance_service import EnhanceMode
 from app.services.proxy_preview_service import is_cache_valid, proxy_cache_path
 from app.services.proxy_preview_worker import ProxyPreviewWorker
 from app.services.video_probe import needs_preview_proxy, probe_video
@@ -262,6 +263,9 @@ class MainWindow(QMainWindow):
             task,
             use_video_preview=use_video_preview,
             preview_video_path=self._playback_video_path(),
+            apply_watermark=self.player_page.is_watermark_enabled(),
+            apply_enhance=self.player_page.get_enhance_mode() != EnhanceMode.OFF,
+            enhance_mode=self.player_page.get_enhance_mode(),
         )
         self.stack.setCurrentIndex(self.PAGE_LIVE_PREVIEW)
 
@@ -270,7 +274,7 @@ class MainWindow(QMainWindow):
 
         self._preview_worker = PreviewFrameWorker(
             task,
-            apply_watermark=True,
+            apply_watermark=self.player_page.is_watermark_enabled(),
             parent=self,
         )
         self._preview_worker.finished_ok.connect(self._on_preview_ready)
@@ -427,6 +431,7 @@ class MainWindow(QMainWindow):
             output_path,
             mode=mode,
             apply_watermark=self.player_page.is_watermark_enabled(),
+            enhance_mode=self.player_page.get_enhance_mode(),
             parent=self,
         )
         self._export_worker.progress.connect(self._on_export_progress)

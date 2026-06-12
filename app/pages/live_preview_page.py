@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from app.models.capture_task import CaptureTask
 from app.services.ffmpeg_service import FFmpegService
+from app.services.quality_enhance_service import EnhanceMode, get_tier_option
 from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
 
 
@@ -161,6 +162,9 @@ class LivePreviewPage(QWidget):
         *,
         use_video_preview: bool = False,
         preview_video_path: str | None = None,
+        apply_watermark: bool = False,
+        apply_enhance: bool = False,
+        enhance_mode: EnhanceMode = EnhanceMode.OFF,
     ) -> None:
         self._task = task
         self._source_image = None
@@ -179,23 +183,32 @@ class LivePreviewPage(QWidget):
             play_path = preview_video_path or task.video_path
             using_proxy = Path(play_path).resolve() != Path(task.video_path).resolve()
             if using_proxy:
-                self.hint_label.setText(
+                base = (
                     "预览：H.264 代理视频（Windows 可播）。"
                     "导出仍用原片截帧 + stream copy，画质不受影响。"
                 )
             else:
-                self.hint_label.setText(
-                    "预览：与播放页相同的视频解码（原画）。"
+                base = (
+                    "预览：与播放页相同的视频解码（原画，秒开）。"
                     "导出时封面封装为 JPEG，视频 stream copy。"
                 )
+            if apply_enhance:
+                tier = get_tier_option(enhance_mode)
+                if tier is not None:
+                    base += f" 已选「{tier.label}」：{tier.subtitle}。"
+                else:
+                    base += " 已开启画质增强。"
+            self.hint_label.setText(base)
             self.video_player.load(play_path)
             return
 
         self.preview_stack.setCurrentIndex(self.INDEX_IMAGE)
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText("正在截取 PNG 无损预览…")
+        wm = "含水印" if apply_watermark else "无水印"
         self.hint_label.setText(
-            "预览：PNG 无损原图（含水印）。"
+            f"预览：PNG 无损原图（{wm}）。"
+            "画质增强仅在导出时生效，预览不做 AI 超分。"
             "导出时封面封装为 JPEG，视频 stream copy。"
         )
 
