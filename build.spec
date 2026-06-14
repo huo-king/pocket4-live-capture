@@ -13,6 +13,9 @@ datas = [
     (str(project_root / "tools" / "exiftool.exe"), "tools"),
     ('tools/exiftool_files', 'tools/exiftool_files'),
     (str(project_root / 'tools' / 'mi.config'), 'tools'),
+    (str(project_root / "tools" / "realesrgan-ncnn-vulkan.exe"), "tools"),
+    (str(project_root / "tools" / "vcomp140.dll"), "tools"),
+    ('tools/models', 'tools/models'),
 ]
 
 a = Analysis(
