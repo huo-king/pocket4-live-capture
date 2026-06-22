@@ -51,6 +51,7 @@ tools/mi.config
 # Local dev files (not needed in repo)
 dajiangphoto*.png
 Pocket实况截图工具_开发计划书.txt
+app/assets/luts/dji_official/
 
 # Temporary files
 *.tmp

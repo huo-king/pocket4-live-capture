@@ -47,10 +47,8 @@ class TimelineSlider(QWidget):
         top_row.setSpacing(10)
 
         self.play_btn = QPushButton("▶")
-        self.play_btn.setFixedSize(40, 40)
-        self.play_btn.setStyleSheet(
-            "border-radius: 20px; padding: 0; font-size: 15px;"
-        )
+        self.play_btn.setObjectName("playButton")
+        self.play_btn.setFixedSize(44, 44)
         top_row.addWidget(self.play_btn)
 
         self.position_label = QLabel("00:00")

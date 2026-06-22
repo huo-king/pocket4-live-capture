@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal
 
 from app.models.capture_task import CaptureTask
 from app.services.ffmpeg_service import FFmpegService
+from app.services.lut_service import LUT_DISABLED, LutConfig
 from app.services.photo_png_export import export_preview_png
 
 
@@ -23,11 +24,13 @@ class PreviewFrameWorker(QThread):
         task: CaptureTask,
         *,
         apply_watermark: bool = False,
+        lut_config: LutConfig = LUT_DISABLED,
         parent=None,
     ):
         super().__init__(parent)
         self.task = task
         self.apply_watermark = apply_watermark
+        self.lut_config = lut_config
         self._ffmpeg = FFmpegService()
         self._temp_dir: Path | None = None
 
@@ -45,6 +48,7 @@ class PreviewFrameWorker(QThread):
                 self.task.timestamp_sec,
                 frame_path,
                 apply_watermark=self.apply_watermark,
+                lut_config=self.lut_config,
             )
 
             if not Path(frame_path).is_file() or Path(frame_path).stat().st_size == 0:

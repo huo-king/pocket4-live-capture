@@ -1,4 +1,4 @@
-"""页面 1：视频播放 + 照片/截实况"""
+"""页面 1：视频播放 + 左侧功能磁贴 + 照片/截实况"""
 
 from __future__ import annotations
 
@@ -6,13 +6,25 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
-from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from app.services.lut_service import LUT_DISABLED
 from app.services.quality_enhance_service import EnhanceMode, resolve_export_enhance_mode
+from app.widgets.lut_compare_pane import LutComparePane
+from app.widgets.lut_panel import LutPanel
 from app.widgets.player_bottom_panel import PlayerBottomPanel
+from app.widgets.player_sidebar import PlayerSidebar
 from app.widgets.processing_panel import ProcessingPanel
 from app.widgets.quality_enhance_panel import QualityEnhancePanel
-from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
+from app.widgets.video_compare_view import VideoCompareView
+from app.widgets.video_player import SUPPORTED_EXTENSIONS
 from app.widgets.watermark_preview_panel import WatermarkPreviewPanel
 
 
@@ -23,24 +35,36 @@ class PlayerPage(QWidget):
     batch_watermark_clicked = Signal()
     video_error = Signal(str)
     video_dropped = Signal(str)
+    lut_preview_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._has_video = False
         self._load_hint: str | None = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        self.hint_label = QLabel("拖入视频文件开始")
+        self.sidebar = PlayerSidebar()
+        root.addWidget(self.sidebar)
+
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        self.hint_label = QLabel("拖入视频文件\n\n支持 MP4 · MOV · M4V")
+        self.hint_label.setObjectName("dropHintLabel")
         self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.hint_label.setStyleSheet("color: #666666; font-size: 18px;")
+        self._set_hint_state("idle")
 
-        self.video_player = VideoPlayerWidget()
-        self.video_player.setSizePolicy(
+        self.video_compare = VideoCompareView()
+        self.video_compare.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
+        self.video_player = self.video_compare.video_player
+        self.lut_compare_pane: LutComparePane = self.video_compare.lut_pane
 
         self.view_stack = QStackedWidget()
         self.view_stack.setObjectName("videoStack")
@@ -48,18 +72,23 @@ class PlayerPage(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self.view_stack.addWidget(self.hint_label)
-        self.view_stack.addWidget(self.video_player)
+        self.view_stack.addWidget(self.video_compare)
 
         self.processing_panel = ProcessingPanel()
         self.watermark_panel = WatermarkPreviewPanel()
         self.quality_panel = QualityEnhancePanel()
+        self.lut_panel = LutPanel()
         self.bottom_panel = PlayerBottomPanel()
 
-        layout.addWidget(self.view_stack, stretch=1)
-        layout.addWidget(self.processing_panel, stretch=0)
-        layout.addWidget(self.watermark_panel, stretch=0)
-        layout.addWidget(self.quality_panel, stretch=0)
-        layout.addWidget(self.bottom_panel, stretch=0)
+        right_layout.addWidget(self.view_stack, stretch=1)
+        right_layout.addWidget(self.processing_panel, stretch=0)
+        right_layout.addWidget(self.bottom_panel, stretch=0)
+
+        root.addWidget(right, stretch=1)
+
+        self.watermark_panel.hide()
+        self.quality_panel.hide()
+        self.lut_panel.hide()
 
         self._install_video_drop_targets()
 
@@ -89,32 +118,27 @@ class PlayerPage(QWidget):
         self.video_player.video_loaded.connect(self._on_video_loaded)
         self.video_player.load_failed.connect(self._on_load_failed)
 
-        self.bottom_panel.toolbar.png_photo_clicked.connect(self._on_png_photo)
-        self.bottom_panel.toolbar.jpeg_photo_clicked.connect(self._on_jpeg_photo)
-        self.bottom_panel.toolbar.live_clicked.connect(self._on_live)
-        self.bottom_panel.toolbar.batch_watermark_clicked.connect(
-            self.batch_watermark_clicked.emit
-        )
-        self.bottom_panel.toolbar.watermark_changed.connect(
-            self.watermark_panel.set_watermark_enabled
-        )
-        self.bottom_panel.toolbar.quality_enhance_changed.connect(
-            self._on_quality_enhance_toggled
-        )
-        self.bottom_panel.toolbar.quality_enhance_mode_changed.connect(
+        self.sidebar.png_photo_clicked.connect(self._on_png_photo)
+        self.sidebar.jpeg_photo_clicked.connect(self._on_jpeg_photo)
+        self.sidebar.live_clicked.connect(self._on_live)
+        self.sidebar.batch_watermark_clicked.connect(self.batch_watermark_clicked.emit)
+        self.sidebar.watermark_changed.connect(self._on_watermark_changed)
+        self.sidebar.quality_enhance_changed.connect(self._on_quality_enhance_toggled)
+        self.sidebar.quality_enhance_mode_changed.connect(
             self.quality_panel.set_enhance_mode
         )
-        self.bottom_panel.toolbar.set_enabled(False)
+        self.sidebar.lut_config_changed.connect(self._on_lut_config_changed)
+        self.sidebar.lut_config_changed.connect(self.lut_preview_requested.emit)
+        self.sidebar.lut_preview_cb.toggled.connect(self._on_lut_preview_toggled)
+        self.sidebar.set_enabled(False)
 
     def _install_video_drop_targets(self) -> None:
-        """处理/水印等区域拖放；视频画面由 VideoPlayerWidget 透明层接管。"""
         targets = [
             self,
+            self.sidebar,
             self.view_stack,
             self.hint_label,
             self.processing_panel,
-            self.watermark_panel,
-            self.quality_panel,
             self.bottom_panel,
         ]
         for widget in targets:
@@ -167,42 +191,99 @@ class PlayerPage(QWidget):
             event.acceptProposedAction()
 
     def is_watermark_enabled(self) -> bool:
-        return self.bottom_panel.toolbar.is_watermark_enabled()
+        return self.sidebar.is_watermark_enabled()
 
     def is_quality_enhance_enabled(self) -> bool:
         return self.get_enhance_mode() != EnhanceMode.OFF
 
     def get_enhance_mode(self) -> EnhanceMode:
-        mode = self.bottom_panel.toolbar.get_enhance_mode()
+        mode = self.sidebar.get_enhance_mode()
         return resolve_export_enhance_mode(mode)
+
+    def get_lut_config(self):
+        return self.sidebar.get_lut_config()
+
+    def is_lut_preview_enabled(self) -> bool:
+        return self.sidebar.is_lut_preview_enabled()
+
+    def set_lut_preview_loading(self, message: str = "正在生成 LUT 预览…") -> None:
+        if self.is_lut_preview_enabled():
+            self._update_lut_compare_layout()
+            self.lut_compare_pane.set_loading(message)
+        else:
+            self.clear_lut_preview()
+
+    def set_lut_preview_image(self, image_path: str, *, lut_label: str) -> None:
+        if not self.is_lut_preview_enabled():
+            self.clear_lut_preview()
+            return
+        self._update_lut_compare_layout()
+        self.lut_compare_pane.set_preview(image_path, lut_label=lut_label)
+
+    def set_lut_preview_error(self, message: str) -> None:
+        self.lut_compare_pane.set_error(message)
+
+    def clear_lut_preview(self) -> None:
+        self.lut_compare_pane.clear_preview()
+        if not self.is_lut_preview_enabled():
+            self._update_lut_compare_layout()
+
+    def _update_lut_compare_layout(self) -> None:
+        show = self._has_video and self.is_lut_preview_enabled()
+        self.video_compare.set_lut_compare_visible(show)
+
+    def _on_lut_preview_toggled(self, _checked: bool) -> None:
+        self._update_lut_compare_layout()
+        if self.is_lut_preview_enabled():
+            self.lut_preview_requested.emit()
+        else:
+            self.lut_compare_pane.clear_preview()
+
+    def _on_watermark_changed(self, enabled: bool) -> None:
+        self.watermark_panel.set_watermark_enabled(enabled)
+        self.processing_panel.set_watermark_enabled(enabled)
 
     def _on_quality_enhance_toggled(self, enabled: bool) -> None:
         if enabled:
-            self.quality_panel.set_enhance_mode(
-                self.bottom_panel.toolbar.get_enhance_mode()
-            )
+            self.quality_panel.set_enhance_mode(self.sidebar.get_enhance_mode())
         else:
             self.quality_panel.set_enhance_mode(EnhanceMode.OFF)
+        self.processing_panel.set_quality_summary(
+            self.quality_panel.status_label.text()
+        )
+
+    def _on_lut_config_changed(self, config) -> None:
+        self.lut_panel.set_lut_config(config)
+        self.processing_panel.set_lut_summary(self.lut_panel.status_label.text())
+        self.sidebar._sync_lut_preview_cb_enabled()
+        self._update_lut_compare_layout()
+        if not config.active:
+            self.clear_lut_preview()
+
+    def _set_hint_state(self, state: str) -> None:
+        self.hint_label.setProperty("state", state)
+        self.hint_label.style().unpolish(self.hint_label)
+        self.hint_label.style().polish(self.hint_label)
 
     def load_video(self, path: str, *, hint: str | None = None) -> None:
         self._load_hint = hint
         self._has_video = False
-        self.view_stack.setCurrentWidget(self.video_player)
+        self.view_stack.setCurrentWidget(self.video_compare)
         self.hint_label.setText("正在加载视频…")
-        self.hint_label.setStyleSheet("color: #888888; font-size: 16px;")
+        self._set_hint_state("loading")
         self.processing_panel.set_loading("正在加载视频…")
         self.bottom_panel.timeline.set_duration(0)
         self.bottom_panel.timeline.set_position(0)
-        self.bottom_panel.toolbar.set_enabled(False)
+        self.sidebar.set_enabled(False)
         self.video_player.load(path)
 
     def show_loading_message(self, message: str) -> None:
         self._has_video = False
         self.hint_label.setText(message)
-        self.hint_label.setStyleSheet("color: #888888; font-size: 16px;")
+        self._set_hint_state("loading")
         self.view_stack.setCurrentWidget(self.hint_label)
         self.processing_panel.set_loading(message)
-        self.bottom_panel.toolbar.set_enabled(False)
+        self.sidebar.set_enabled(False)
 
     def show_load_error(self, message: str) -> None:
         self._on_load_failed(message)
@@ -215,21 +296,27 @@ class PlayerPage(QWidget):
 
     def _on_video_loaded(self, _path: str) -> None:
         self._has_video = True
-        self.view_stack.setCurrentWidget(self.video_player)
+        self.view_stack.setCurrentWidget(self.video_compare)
         self.processing_panel.set_ready(
             hint=self._load_hint,
             timestamp_ms=self.current_timestamp_ms(),
         )
-        self.bottom_panel.toolbar.set_enabled(True)
+        self.sidebar.set_enabled(True)
+        self._on_watermark_changed(self.sidebar.is_watermark_enabled())
+        self._on_quality_enhance_toggled(self.sidebar.enhance_cb.isChecked())
+        self._on_lut_config_changed(self.get_lut_config())
+        self._update_lut_compare_layout()
+        self.sidebar._sync_lut_preview_cb_enabled()
+        self.lut_preview_requested.emit()
         self.video_player.play()
 
     def _on_load_failed(self, message: str) -> None:
         self._has_video = False
         self.hint_label.setText(message)
-        self.hint_label.setStyleSheet("color: #FF6B6B; font-size: 16px;")
+        self._set_hint_state("error")
         self.view_stack.setCurrentWidget(self.hint_label)
         self.processing_panel.set_error(message)
-        self.bottom_panel.toolbar.set_enabled(False)
+        self.sidebar.set_enabled(False)
         self.video_error.emit(message)
 
     def _on_seek_released(self, position_ms: int) -> None:

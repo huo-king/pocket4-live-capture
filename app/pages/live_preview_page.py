@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from app.models.capture_task import CaptureTask
 from app.services.ffmpeg_service import FFmpegService
+from app.services.lut_service import LutConfig, describe_lut
 from app.services.quality_enhance_service import EnhanceMode, get_tier_option
 from app.widgets.video_player import SUPPORTED_EXTENSIONS, VideoPlayerWidget
 
@@ -165,6 +166,7 @@ class LivePreviewPage(QWidget):
         apply_watermark: bool = False,
         apply_enhance: bool = False,
         enhance_mode: EnhanceMode = EnhanceMode.OFF,
+        lut_config: LutConfig | None = None,
     ) -> None:
         self._task = task
         self._source_image = None
@@ -198,6 +200,8 @@ class LivePreviewPage(QWidget):
                     base += f" 已选「{tier.label}」：{tier.subtitle}。"
                 else:
                     base += " 已开启画质增强。"
+            if lut_config and lut_config.active:
+                base += f" {describe_lut(lut_config)}。"
             self.hint_label.setText(base)
             self.video_player.load(play_path)
             return
@@ -206,11 +210,14 @@ class LivePreviewPage(QWidget):
         self.image_label.setPixmap(QPixmap())
         self.image_label.setText("正在截取 PNG 无损预览…")
         wm = "含水印" if apply_watermark else "无水印"
-        self.hint_label.setText(
+        hint = (
             f"预览：PNG 无损原图（{wm}）。"
             "画质增强仅在导出时生效，预览不做 AI 超分。"
-            "导出时封面封装为 JPEG，视频 stream copy。"
         )
+        if lut_config and lut_config.active:
+            hint += f" {describe_lut(lut_config)}。"
+        hint += "导出时封面封装为 JPEG，视频 stream copy。"
+        self.hint_label.setText(hint)
 
     def set_preview_from_file(self, task: CaptureTask, image_path: str) -> None:
         self._task = task

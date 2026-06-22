@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.services.lut_service import LUT_DISABLED, LutConfig
 from app.services.photo_png_export import (
     extract_lossless_png,
     process_export_png,
@@ -21,6 +22,7 @@ def export_photo_jpeg(
     *,
     apply_watermark: bool = False,
     enhance_mode: EnhanceMode = EnhanceMode.OFF,
+    lut_config: LutConfig = LUT_DISABLED,
     on_progress: ProgressCallback | None = None,
 ) -> str:
     """
@@ -46,6 +48,7 @@ def export_photo_jpeg(
             png_path,
             apply_watermark=apply_watermark,
             enhance_mode=enhance_mode,
+            lut_config=lut_config,
             on_progress=on_progress,
         )
         if on_progress:
@@ -84,6 +87,7 @@ def export_motion_cover_jpeg(
     *,
     apply_watermark: bool = False,
     enhance_mode: EnhanceMode = EnhanceMode.OFF,
+    lut_config: LutConfig = LUT_DISABLED,
     video_info: VideoInfo | None = None,
 ) -> str | None:
     """
@@ -102,6 +106,7 @@ def export_motion_cover_jpeg(
             png_path,
             apply_watermark=apply_watermark,
             enhance_mode=enhance_mode,
+            lut_config=lut_config,
         )
         _png_to_jpeg_max(png_path, output_jpg)
         return enhance_note

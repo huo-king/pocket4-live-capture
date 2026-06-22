@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from app.services.lut_service import LUT_DISABLED, LutConfig
 from app.services.photo_jpeg_export import export_motion_cover_jpeg
 from app.services.photo_png_export import transit_pix_fmt_for_export
 from app.services.quality_enhance_service import EnhanceMode
@@ -47,15 +48,17 @@ class FFmpegService:
         *,
         apply_watermark: bool = False,
         enhance_mode: EnhanceMode = EnhanceMode.OFF,
+        lut_config: LutConfig = LUT_DISABLED,
         video_info: VideoInfo | None = None,
     ) -> str | None:
-        """实况封面：PNG 无损截帧 → [增强] → 最高质量 JPEG。"""
+        """实况封面：PNG 无损截帧 → [LUT] → [增强] → 最高质量 JPEG。"""
         return export_motion_cover_jpeg(
             video_path,
             timestamp_sec,
             output_jpg,
             apply_watermark=apply_watermark,
             enhance_mode=enhance_mode,
+            lut_config=lut_config,
             video_info=video_info,
         )
 

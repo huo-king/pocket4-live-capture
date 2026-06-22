@@ -6,6 +6,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QDialog,
@@ -25,11 +26,16 @@ from app.pages.batch_watermark_page import BatchWatermarkPage
 from app.pages.live_preview_page import LivePreviewPage
 from app.pages.player_page import PlayerPage
 from app.services.batch_watermark_worker import BatchWatermarkWorker
-from app.services.export_worker import (
-    ExportWorker,
+from app.services.export_naming import (
+    ExportKind,
+    ExportNameAllocator,
+    build_default_export_filename,
     build_motion_photo_filename,
     default_export_dir,
 )
+from app.services.export_worker import ExportWorker
+from app.services.lut_preview_worker import LutPreviewWorker
+from app.services.lut_service import describe_lut
 from app.services.preview_worker import PreviewFrameWorker
 from app.services.quality_enhance_service import EnhanceMode
 from app.services.proxy_preview_service import is_cache_valid, proxy_cache_path
@@ -61,6 +67,17 @@ class MainWindow(QMainWindow):
         self._preview_path: str | None = None
         self._using_proxy_preview = False
         self._progress_dialog: ExportProgressDialog | None = None
+        self._export_name_allocator = ExportNameAllocator()
+        self._lut_preview_worker: LutPreviewWorker | None = None
+        self._lut_preview_generation = 0
+        self._lut_preview_last_requested_ms = -1
+        self._lut_preview_timer = QTimer(self)
+        self._lut_preview_timer.setSingleShot(True)
+        self._lut_preview_timer.setInterval(150)
+        self._lut_preview_timer.timeout.connect(self._run_lut_preview)
+        self._lut_preview_play_timer = QTimer(self)
+        self._lut_preview_play_timer.setInterval(400)
+        self._lut_preview_play_timer.timeout.connect(self._on_lut_preview_play_tick)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -91,6 +108,146 @@ class MainWindow(QMainWindow):
         self.batch_watermark_page.pick_output_dir.connect(self._pick_batch_output_dir)
         self.batch_watermark_page.pick_files.connect(self._pick_batch_files)
         self.batch_watermark_page.start_batch.connect(self._start_batch_watermark)
+
+        self.player_page.video_player.position_changed.connect(
+            self._on_player_position_changed
+        )
+        self.player_page.video_player.playback_state_changed.connect(
+            self._on_playback_state_for_lut_preview
+        )
+        self.player_page.bottom_panel.timeline.seek_released.connect(
+            self._on_lut_seek_released
+        )
+        self.player_page.lut_preview_requested.connect(self._schedule_lut_preview)
+        self.player_page.sidebar.quality_enhance_changed.connect(
+            lambda _checked: self._refresh_export_counter()
+        )
+        self.player_page.sidebar.quality_enhance_mode_changed.connect(
+            lambda _mode: self._refresh_export_counter()
+        )
+        self.player_page.sidebar.lut_config_changed.connect(
+            lambda _cfg: self._schedule_lut_preview()
+        )
+
+    def _on_lut_seek_released(self, *_args) -> None:
+        """拖动时间轴后立即对齐 LUT 预览（与左侧同一时刻）。"""
+        if not self.player_page.is_lut_preview_enabled():
+            return
+        self._lut_preview_timer.stop()
+        self.player_page.set_lut_preview_loading()
+        self._run_lut_preview()
+
+    def _on_player_position_changed(self, timestamp_ms: int) -> None:
+        self._refresh_export_counter(timestamp_ms)
+        if not self.player_page.is_lut_preview_enabled():
+            return
+        if self.player_page.video_player.is_playing():
+            return
+        self._schedule_lut_preview()
+
+    def _on_playback_state_for_lut_preview(self, playing: bool) -> None:
+        if playing:
+            if self.player_page.is_lut_preview_enabled():
+                self._schedule_lut_preview()
+                self._lut_preview_play_timer.start()
+            return
+        self._lut_preview_play_timer.stop()
+        self._schedule_lut_preview()
+
+    def _on_lut_preview_play_tick(self) -> None:
+        if not self.player_page.video_player.is_playing():
+            self._lut_preview_play_timer.stop()
+            return
+        if not self._video_path or not self.player_page.is_lut_preview_enabled():
+            return
+        current_ms = self.player_page.current_timestamp_ms()
+        if (
+            self._lut_preview_worker is not None
+            and self._lut_preview_worker.isRunning()
+            and abs(current_ms - self._lut_preview_last_requested_ms) < 500
+        ):
+            return
+        self._run_lut_preview()
+
+    def _schedule_lut_preview(self, *_args) -> None:
+        if not self._video_path or not self.player_page.is_lut_preview_enabled():
+            self._lut_preview_play_timer.stop()
+            self.player_page.clear_lut_preview()
+            return
+        if not self.player_page.lut_compare_pane.has_preview():
+            self.player_page.set_lut_preview_loading()
+        self._lut_preview_timer.start()
+
+    def _run_lut_preview(self) -> None:
+        if not self._video_path or not self.player_page.is_lut_preview_enabled():
+            self._lut_preview_play_timer.stop()
+            self.player_page.clear_lut_preview()
+            return
+
+        preview_path = self._playback_video_path()
+        if not preview_path:
+            return
+
+        self._lut_preview_generation += 1
+        generation = self._lut_preview_generation
+        config = self.player_page.get_lut_config()
+        timestamp_ms = self.player_page.current_timestamp_ms()
+        self._lut_preview_last_requested_ms = timestamp_ms
+
+        if self._lut_preview_worker is not None and not self._lut_preview_worker.isRunning():
+            self._lut_preview_worker.cleanup()
+
+        self._lut_preview_worker = LutPreviewWorker(
+            preview_path,
+            timestamp_ms,
+            config,
+            parent=self,
+        )
+        self._lut_preview_worker.set_generation(generation)
+        self._lut_preview_worker.finished_ok.connect(self._on_lut_preview_ready)
+        self._lut_preview_worker.failed.connect(self._on_lut_preview_failed)
+        self._lut_preview_worker.finished.connect(self._on_lut_preview_worker_finished)
+        self._lut_preview_worker.start()
+
+    def _on_lut_preview_ready(
+        self, image_path: str, requested_ms: int, generation: int
+    ) -> None:
+        if generation != self._lut_preview_generation:
+            return
+        if self.sender() is not self._lut_preview_worker:
+            return
+        current_ms = self.player_page.current_timestamp_ms()
+        playing = self.player_page.video_player.is_playing()
+        tolerance_ms = 900 if playing else 120
+        if abs(current_ms - requested_ms) > tolerance_ms:
+            if playing:
+                self._run_lut_preview()
+            else:
+                self._schedule_lut_preview()
+            return
+        config = self.player_page.get_lut_config()
+        self.player_page.set_lut_preview_image(
+            image_path,
+            lut_label=describe_lut(config),
+        )
+        if self._lut_preview_worker is not None:
+            self._lut_preview_worker.cleanup()
+
+    def _on_lut_preview_failed(self, message: str) -> None:
+        if self.sender() is not self._lut_preview_worker:
+            return
+        self.player_page.set_lut_preview_error(message)
+
+    def _on_lut_preview_worker_finished(self) -> None:
+        self._lut_preview_worker = None
+
+    def _cleanup_lut_preview_worker(self) -> None:
+        if self._lut_preview_worker is None:
+            return
+        if self._lut_preview_worker.isRunning():
+            self._lut_preview_worker.wait(2000)
+        self._lut_preview_worker.cleanup()
+        self._lut_preview_worker = None
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         if self._accepts_video_drop(event.mimeData()):
@@ -124,6 +281,10 @@ class MainWindow(QMainWindow):
         resolved = str(Path(path).resolve())
 
         self._cleanup_preview_worker()
+        self._cleanup_lut_preview_worker()
+        self._lut_preview_timer.stop()
+        self._lut_preview_play_timer.stop()
+        self.player_page.clear_lut_preview()
         self._cancel_proxy_worker()
         if self._progress_dialog:
             self._progress_dialog.reject()
@@ -132,6 +293,7 @@ class MainWindow(QMainWindow):
         self._video_path = resolved
         self._preview_path = None
         self._using_proxy_preview = False
+        self._export_name_allocator.reset()
         self.stack.setCurrentIndex(self.PAGE_PLAYER)
 
         try:
@@ -258,7 +420,10 @@ class MainWindow(QMainWindow):
             video_path=self._video_path or "",
             timestamp_ms=self._pending_timestamp_ms,
         )
-        use_video_preview = not self.player_page.is_watermark_enabled()
+        use_video_preview = (
+            not self.player_page.is_watermark_enabled()
+            and not self.player_page.get_lut_config().active
+        )
         self.live_preview_page.show_loading(
             task,
             use_video_preview=use_video_preview,
@@ -266,6 +431,7 @@ class MainWindow(QMainWindow):
             apply_watermark=self.player_page.is_watermark_enabled(),
             apply_enhance=self.player_page.get_enhance_mode() != EnhanceMode.OFF,
             enhance_mode=self.player_page.get_enhance_mode(),
+            lut_config=self.player_page.get_lut_config(),
         )
         self.stack.setCurrentIndex(self.PAGE_LIVE_PREVIEW)
 
@@ -275,6 +441,7 @@ class MainWindow(QMainWindow):
         self._preview_worker = PreviewFrameWorker(
             task,
             apply_watermark=self.player_page.is_watermark_enabled(),
+            lut_config=self.player_page.get_lut_config(),
             parent=self,
         )
         self._preview_worker.finished_ok.connect(self._on_preview_ready)
@@ -365,12 +532,74 @@ class MainWindow(QMainWindow):
         self._batch_worker = None
         self._progress_dialog = None
 
+    def _refresh_export_counter(self, timestamp_ms: int | None = None) -> None:
+        if not self._video_path:
+            self.player_page.processing_panel.set_export_counter(
+                normal_seq=0, enhanced_seq=0
+            )
+            return
+
+        ts = (
+            timestamp_ms
+            if timestamp_ms is not None
+            else self.player_page.current_timestamp_ms()
+        )
+        export_dir = default_export_dir()
+        _, normal_seq = self._export_name_allocator.peek_next(
+            export_dir,
+            self._video_path,
+            ts,
+            ExportKind.PHOTO_PNG,
+            EnhanceMode.OFF,
+        )
+        _, enhanced_seq = self._export_name_allocator.peek_next(
+            export_dir,
+            self._video_path,
+            ts,
+            ExportKind.PHOTO_PNG,
+            EnhanceMode.REALESRGAN_COVER,
+        )
+        enhance_mode = self.player_page.get_enhance_mode()
+        lut_active = self.player_page.get_lut_config().active
+        example, _ = self._export_name_allocator.peek_next(
+            export_dir,
+            self._video_path,
+            ts,
+            ExportKind.PHOTO_PNG,
+            enhance_mode,
+            lut_active=lut_active,
+        )
+        self.player_page.processing_panel.set_export_counter(
+            normal_seq=normal_seq,
+            enhanced_seq=enhanced_seq,
+            example_name=example,
+        )
+
+    def _default_export_filename(
+        self,
+        kind: ExportKind,
+        timestamp_ms: int,
+        enhance_mode: EnhanceMode,
+    ) -> str:
+        lut_active = self.player_page.get_lut_config().active
+        return build_default_export_filename(
+            self._video_path or "",
+            timestamp_ms,
+            kind,
+            enhance_mode,
+            export_dir=default_export_dir(),
+            allocator=self._export_name_allocator,
+            lut_active=lut_active,
+        )
+
     def _export_png_photo(self) -> None:
         if not self._video_path:
             return
         task = self._build_task(self._pending_timestamp_ms)
-        stem = Path(self._video_path).stem
-        default_name = f"{stem}_{task.timestamp_ms}ms.png"
+        enhance_mode = self.player_page.get_enhance_mode()
+        default_name = self._default_export_filename(
+            ExportKind.PHOTO_PNG, task.timestamp_ms, enhance_mode
+        )
         save_path, _ = QFileDialog.getSaveFileName(
             self,
             "保存 PNG 无损照片",
@@ -387,8 +616,10 @@ class MainWindow(QMainWindow):
         if not self._video_path:
             return
         task = self._build_task(self._pending_timestamp_ms)
-        stem = Path(self._video_path).stem
-        default_name = f"{stem}_{task.timestamp_ms}ms.jpg"
+        enhance_mode = self.player_page.get_enhance_mode()
+        default_name = self._default_export_filename(
+            ExportKind.PHOTO_JPEG, task.timestamp_ms, enhance_mode
+        )
         save_path, _ = QFileDialog.getSaveFileName(
             self,
             "保存 JPEG 最高质量照片",
@@ -405,7 +636,15 @@ class MainWindow(QMainWindow):
         if self.live_preview_page.export_btn.isEnabled() is False:
             return
 
-        default_name = build_motion_photo_filename(task.video_path, task.timestamp_ms)
+        enhance_mode = self.player_page.get_enhance_mode()
+        default_name = build_motion_photo_filename(
+            task.video_path,
+            task.timestamp_ms,
+            enhance_mode,
+            export_dir=default_export_dir(),
+            allocator=self._export_name_allocator,
+            lut_active=self.player_page.get_lut_config().active,
+        )
         save_path, _ = QFileDialog.getSaveFileName(
             self,
             "导出 Motion Photo",
@@ -422,6 +661,8 @@ class MainWindow(QMainWindow):
         if self._export_worker and self._export_worker.isRunning():
             return
 
+        self._export_name_allocator.reserve(Path(output_path).name)
+        self._refresh_export_counter()
         self.live_preview_page.export_btn.setEnabled(False)
         self._progress_dialog = ExportProgressDialog(self)
         self._progress_dialog.show()
@@ -432,6 +673,7 @@ class MainWindow(QMainWindow):
             mode=mode,
             apply_watermark=self.player_page.is_watermark_enabled(),
             enhance_mode=self.player_page.get_enhance_mode(),
+            lut_config=self.player_page.get_lut_config(),
             parent=self,
         )
         self._export_worker.progress.connect(self._on_export_progress)
@@ -458,12 +700,18 @@ class MainWindow(QMainWindow):
     def _on_export_failed(self, message: str) -> None:
         if self._progress_dialog:
             self._progress_dialog.reject()
+        if self._export_worker:
+            self._export_name_allocator.release(
+                Path(self._export_worker.output_path).name
+            )
+            self._refresh_export_counter()
         self._show_error(message)
 
     def _on_export_finished(self) -> None:
         self.live_preview_page.export_btn.setEnabled(True)
         self._export_worker = None
         self._progress_dialog = None
+        self._refresh_export_counter()
 
     def _show_success_dialog(
         self,

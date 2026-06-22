@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 
 SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".m4v", ".MP4", ".MOV", ".M4V"}
@@ -101,6 +101,20 @@ class VideoPlayerWidget(QWidget):
         self.drop_overlay.clicked.connect(self.toggle_playback)
         self.drop_overlay.file_dropped.connect(self.file_dropped.emit)
 
+        self.lut_overlay = QLabel(self)
+        self.lut_overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lut_overlay.setStyleSheet("background-color: #000000;")
+        self.lut_overlay.hide()
+
+        self.lut_badge = QLabel("LUT 预览", self.lut_overlay)
+        self.lut_badge.setStyleSheet(
+            "background-color: rgba(77, 163, 255, 0.85); color: #FFFFFF; "
+            "padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;"
+        )
+        self.lut_badge.adjustSize()
+        self.lut_badge.move(12, 12)
+        self._lut_preview_pixmap: QPixmap | None = None
+
         self._player = QMediaPlayer()
         self._audio = QAudioOutput()
         self._player.setAudioOutput(self._audio)
@@ -115,12 +129,45 @@ class VideoPlayerWidget(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.drop_overlay.setGeometry(self.rect())
+        self.lut_overlay.setGeometry(self.rect())
+        self._refresh_lut_overlay_pixmap()
         self.drop_overlay.raise_()
+        if self.lut_overlay.isVisible():
+            self.lut_overlay.raise_()
+            self.drop_overlay.raise_()
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.drop_overlay.setGeometry(self.rect())
+        self.lut_overlay.setGeometry(self.rect())
         self.drop_overlay.raise_()
+
+    def set_lut_preview_pixmap(self, pixmap: QPixmap | None) -> None:
+        self._lut_preview_pixmap = pixmap
+        if pixmap is None or pixmap.isNull():
+            self.lut_overlay.hide()
+            return
+        self._refresh_lut_overlay_pixmap()
+        self.lut_overlay.show()
+        self.lut_overlay.raise_()
+        self.drop_overlay.raise_()
+
+    def clear_lut_preview(self) -> None:
+        self._lut_preview_pixmap = None
+        self.lut_overlay.hide()
+        self.lut_overlay.setPixmap(QPixmap())
+
+    def _refresh_lut_overlay_pixmap(self) -> None:
+        if self._lut_preview_pixmap is None or self._lut_preview_pixmap.isNull():
+            return
+        if not self.lut_overlay.isVisible():
+            return
+        scaled = self._lut_preview_pixmap.scaled(
+            self.lut_overlay.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self.lut_overlay.setPixmap(scaled)
 
     @property
     def player(self) -> QMediaPlayer:

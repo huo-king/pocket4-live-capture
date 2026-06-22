@@ -15,6 +15,12 @@ from app.services.ffmpeg_service import FFmpegService
 from app.services.motion_photo_service import MotionPhotoService
 from app.services.photo_jpeg_export import export_photo_jpeg
 from app.services.photo_png_export import export_photo_png
+from app.services.export_naming import build_motion_photo_filename, default_export_dir
+from app.services.lut_motion_export import (
+    apply_lut_to_motion_clip,
+    should_apply_lut_to_motion_video,
+)
+from app.services.lut_service import LUT_DISABLED, LutConfig
 from app.services.quality_enhance_service import EnhanceMode, enhance_video_clip, should_enhance_motion_video
 
 
@@ -35,6 +41,7 @@ class ExportWorker(QThread):
         *,
         apply_watermark: bool = False,
         enhance_mode: EnhanceMode = EnhanceMode.OFF,
+        lut_config: LutConfig = LUT_DISABLED,
         parent=None,
     ):
         super().__init__(parent)
@@ -43,6 +50,7 @@ class ExportWorker(QThread):
         self.mode = mode
         self.apply_watermark = apply_watermark
         self.enhance_mode = enhance_mode
+        self.lut_config = lut_config
         self._ffmpeg = FFmpegService()
         self._motion = MotionPhotoService()
         self.last_frame_note: str = ""
@@ -64,6 +72,7 @@ class ExportWorker(QThread):
                     self.output_path,
                     apply_watermark=self.apply_watermark,
                     enhance_mode=self.enhance_mode,
+                    lut_config=self.lut_config,
                     on_progress=self._emit_progress,
                 )
                 self.last_frame_note = note
@@ -79,6 +88,7 @@ class ExportWorker(QThread):
                     self.output_path,
                     apply_watermark=self.apply_watermark,
                     enhance_mode=self.enhance_mode,
+                    lut_config=self.lut_config,
                     on_progress=self._emit_progress,
                 )
                 self.last_frame_note = note
@@ -99,12 +109,13 @@ class ExportWorker(QThread):
                 frame_path,
                 apply_watermark=self.apply_watermark,
                 enhance_mode=self.enhance_mode,
+                lut_config=self.lut_config,
                 video_info=info,
             )
             frame_mb = Path(frame_path).stat().st_size / (1024 * 1024)
-            if self.enhance_mode != EnhanceMode.OFF:
+            if self.enhance_mode != EnhanceMode.OFF or self.lut_config.active:
                 self.last_frame_note = (
-                    f"封面：{enhance_note or '已增强'} → JPEG(100/4:4:4) · {frame_mb:.1f} MB"
+                    f"封面：{enhance_note or '已处理'} → JPEG(100/4:4:4) · {frame_mb:.1f} MB"
                 )
             else:
                 self.last_frame_note = (
@@ -124,7 +135,18 @@ class ExportWorker(QThread):
                 for_motion_photo=True,
             )
 
-            if self.enhance_mode != EnhanceMode.OFF and should_enhance_motion_video(
+            if should_apply_lut_to_motion_video(self.lut_config, self.enhance_mode):
+                lut_out = str(temp_dir / "clip_lut.mp4")
+                clip_path, lut_note = apply_lut_to_motion_clip(
+                    clip_path,
+                    lut_out,
+                    self.lut_config,
+                    self.enhance_mode,
+                    on_progress=self._emit_progress,
+                )
+                if lut_note:
+                    self.last_clip_quality = lut_note
+            elif self.enhance_mode != EnhanceMode.OFF and should_enhance_motion_video(
                 self.enhance_mode
             ):
                 enhanced_clip = str(temp_dir / "clip_enhanced.mp4")
@@ -146,6 +168,10 @@ class ExportWorker(QThread):
                 self.last_clip_quality = clip_result.quality_label
                 if self.enhance_mode != EnhanceMode.OFF:
                     self.last_clip_quality += " · 内嵌视频保持原画 stream copy"
+                if self.lut_config.active and not should_apply_lut_to_motion_video(
+                    self.lut_config, self.enhance_mode
+                ):
+                    self.last_clip_quality += " · 内嵌视频原画（LUT 仅封面）"
 
             if Path(clip_path).stat().st_size <= 0:
                 raise RuntimeError("视频片段裁切失败：输出文件为空")
@@ -168,20 +194,7 @@ class ExportWorker(QThread):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def build_motion_photo_filename(video_path: str, timestamp_ms: int) -> str:
-    stem = Path(video_path).stem
-    total_sec = timestamp_ms // 1000
-    minutes = total_sec // 60
-    seconds = total_sec % 60
-    millis = timestamp_ms % 1000
-    return f"MVIMG_{stem}_{minutes:02d}m{seconds:02d}s{millis:03d}.jpg"
-
-
-def default_export_dir() -> str:
-    videos = Path.home() / "Videos"
-    if videos.is_dir():
-        return str(videos)
-    return str(Path.home() / "Pictures")
+__all__ = ["ExportWorker", "build_motion_photo_filename", "default_export_dir"]
 
 
 def _friendly_error(message: str) -> str:

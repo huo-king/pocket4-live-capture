@@ -16,6 +16,7 @@ datas = [
     (str(project_root / "tools" / "realesrgan-ncnn-vulkan.exe"), "tools"),
     (str(project_root / "tools" / "vcomp140.dll"), "tools"),
     ('tools/models', 'tools/models'),
+    ('app/assets/luts', 'app/assets/luts'),
 ]
 
 a = Analysis(

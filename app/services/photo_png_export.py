@@ -6,6 +6,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from app.services.lut_service import LUT_DISABLED, LutConfig, apply_lut_to_png
 from app.services.photo_watermark import apply_watermark_to_png_file
 from app.services.quality_enhance_service import (
     EnhanceMode,
@@ -110,9 +111,17 @@ def process_export_png(
     *,
     apply_watermark: bool = False,
     enhance_mode: EnhanceMode = EnhanceMode.OFF,
+    lut_config: LutConfig = LUT_DISABLED,
     on_progress: ProgressCallback | None = None,
 ) -> str | None:
-    """截帧后处理：增强 → 水印。返回增强说明（若有）。"""
+    """截帧后处理：LUT → 增强 → 水印。返回说明（若有）。"""
+    notes: list[str] = []
+    if lut_config.active:
+        if on_progress:
+            on_progress(45, "LUT 调色…")
+        lut_note = apply_lut_to_png(png_path, lut_config)
+        if lut_note:
+            notes.append(lut_note)
     enhance_note: str | None = None
     if enhance_mode != EnhanceMode.OFF:
         if on_progress:
@@ -129,6 +138,10 @@ def process_export_png(
         if on_progress:
             on_progress(92, "叠加水印…")
         apply_watermark_to_png_file(png_path)
+    if notes and enhance_note:
+        return " · ".join(notes + [enhance_note])
+    if notes:
+        return notes[0]
     return enhance_note
 
 
@@ -139,9 +152,9 @@ def export_photo_png(
     *,
     apply_watermark: bool = False,
     enhance_mode: EnhanceMode = EnhanceMode.OFF,
+    lut_config: LutConfig = LUT_DISABLED,
     on_progress: ProgressCallback | None = None,
 ) -> str:
-    """导出 PNG 无损照片，返回画质说明。"""
     output = Path(output_path)
     if output.suffix.lower() != ".png":
         output = output.with_suffix(".png")
@@ -160,6 +173,7 @@ def export_photo_png(
             png_path,
             apply_watermark=apply_watermark,
             enhance_mode=enhance_mode,
+            lut_config=lut_config,
             on_progress=on_progress,
         )
         shutil.move(png_path, output)
@@ -167,15 +181,15 @@ def export_photo_png(
         Path(png_path).unlink(missing_ok=True)
         raise
 
-    if enhance_mode != EnhanceMode.OFF:
+    if enhance_mode != EnhanceMode.OFF or lut_config.active:
         w, h = _read_image_size(str(output))
     else:
         w, h = info.width, info.height
     size_mb = output.stat().st_size / (1024 * 1024)
-    if enhance_mode != EnhanceMode.OFF:
+    if enhance_mode != EnhanceMode.OFF or lut_config.active:
         note = (
             f"PNG · {info.width}×{info.height} → {w}×{h} · {size_mb:.1f} MB · "
-            f"{enhance_note or '已增强'}"
+            f"{enhance_note or '已处理'}"
         )
     else:
         note = f"PNG 无损 · {w}×{h} · {size_mb:.1f} MB"
@@ -191,8 +205,8 @@ def export_preview_png(
     *,
     apply_watermark: bool = False,
     enhance_mode: EnhanceMode = EnhanceMode.OFF,
+    lut_config: LutConfig = LUT_DISABLED,
 ) -> None:
-    """实况预览页专用：PNG 截帧（预览用 rgb24 加速，不影响导出链路）。"""
     output = Path(output_path)
     if output.suffix.lower() != ".png":
         output = output.with_suffix(".png")
@@ -209,6 +223,7 @@ def export_preview_png(
             png_path,
             apply_watermark=apply_watermark,
             enhance_mode=enhance_mode,
+            lut_config=lut_config,
         )
         shutil.move(png_path, output)
     except Exception:

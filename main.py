@@ -40,6 +40,10 @@ def load_stylesheet(path: str) -> str:
 def main():
     setup_tool_path()
 
+    from app.services.lut_service import ensure_builtin_luts
+
+    ensure_builtin_luts()
+
     from PySide6.QtCore import Qt
 
     from app.main_window import MainWindow
